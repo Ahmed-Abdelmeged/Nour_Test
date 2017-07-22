@@ -1,18 +1,18 @@
 package com.abdelmeged.ahmed.nourplayer.ui;
 
 import android.app.ProgressDialog;
+import android.arch.lifecycle.Lifecycle;
+import android.arch.lifecycle.LifecycleActivity;
+import android.arch.lifecycle.LifecycleObserver;
+import android.arch.lifecycle.OnLifecycleEvent;
 import android.content.Context;
 import android.media.AudioManager;
 import android.media.MediaPlayer;
-import android.net.ConnectivityManager;
-import android.net.NetworkInfo;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Handler;
 import android.os.Message;
-import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
-import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.SeekBar;
@@ -23,15 +23,14 @@ import com.abdelmeged.ahmed.nourplayer.R;
 import com.abdelmeged.ahmed.nourplayer.app.App;
 import com.abdelmeged.ahmed.nourplayer.model.Sura;
 import com.abdelmeged.ahmed.nourplayer.utils.Constants;
+import com.abdelmeged.ahmed.nourplayer.utils.Utilities;
 import com.danikula.videocache.CacheListener;
 import com.danikula.videocache.HttpProxyCacheServer;
 
 
 import java.io.File;
 
-import static android.R.id.message;
-
-public class SuraPlayerActivity extends AppCompatActivity implements View.OnClickListener, CacheListener {
+public class SuraPlayerActivity extends LifecycleActivity implements View.OnClickListener, CacheListener {
 
     /**
      * UI Element
@@ -86,25 +85,12 @@ public class SuraPlayerActivity extends AppCompatActivity implements View.OnClic
         }
     };
 
-    /**
-     * This listener gets triggered when the {@link MediaPlayer} has completed
-     * playing the audio file.
-     */
-    private MediaPlayer.OnCompletionListener mCompletionListener = new MediaPlayer.OnCompletionListener() {
-        @Override
-        public void onCompletion(MediaPlayer mediaPlayer) {
-            // Now that the sound file has finished playing, release the media player resources.
-            releaseMediaPlayer();
-        }
-    };
-
-    private final AudioProgressUpdater updater = new AudioProgressUpdater();
-
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_sura_player);
+
         initializeScreen();
         if (getIntent().getSerializableExtra(Constants.EXTRA_SURA) != null) {
             currentSura = (Sura) getIntent().getSerializableExtra(Constants.EXTRA_SURA);
@@ -120,6 +106,9 @@ public class SuraPlayerActivity extends AppCompatActivity implements View.OnClic
         if (currentSura != null) {
             suraNmaeTextView.setText(currentSura.getName());
         }
+
+        //Add seek bar observer
+        getLifecycle().addObserver(new AudioProgressUpdater());
 
     }
 
@@ -151,7 +140,7 @@ public class SuraPlayerActivity extends AppCompatActivity implements View.OnClic
             } else {
                 suraProgress.setVisibility(View.INVISIBLE);
                 if (proxyUrl != null) {
-                    if (isAvailableInternetConnection(this)) {
+                    if (Utilities.isAvailableInternetConnection(this)) {
                         new createPLayer().execute(proxyUrl);
                     } else {
                         if (proxyUrl.startsWith("file://")) {
@@ -257,13 +246,11 @@ public class SuraPlayerActivity extends AppCompatActivity implements View.OnClic
                 }
             });
         }
-        updater.start();
     }
 
     @Override
     public void onPause() {
         super.onPause();
-        updater.stop();
         if (progressDialog != null) {
             progressDialog.dismiss();
         }
@@ -290,12 +277,15 @@ public class SuraPlayerActivity extends AppCompatActivity implements View.OnClic
         }
     }
 
-    private final class AudioProgressUpdater extends Handler {
-        public void start() {
+    private final class AudioProgressUpdater extends Handler implements LifecycleObserver {
+
+        @OnLifecycleEvent(Lifecycle.Event.ON_START)
+        void start() {
             sendEmptyMessage(0);
         }
 
-        public void stop() {
+        @OnLifecycleEvent(Lifecycle.Event.ON_STOP)
+        void stop() {
             removeMessages(0);
         }
 
@@ -328,19 +318,8 @@ public class SuraPlayerActivity extends AppCompatActivity implements View.OnClic
             if (mMediaPlayer != null) {
                 mMediaPlayer.seekTo(0);
                 mMediaPlayer.start();
-                mMediaPlayer.setOnCompletionListener(mCompletionListener);
             }
         }
-    }
-
-    /**
-     * Helper method to check the internet connection isAvailableInternetConnection
-     */
-    public static boolean isAvailableInternetConnection(Context context) {
-
-        ConnectivityManager connectivityManager = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
-        NetworkInfo networkInfo = connectivityManager.getActiveNetworkInfo();
-        return networkInfo != null && networkInfo.isConnected();
     }
 
     private void pauseMedia() {
@@ -356,6 +335,4 @@ public class SuraPlayerActivity extends AppCompatActivity implements View.OnClic
             mMediaPlayer.start();
         }
     }
-
-
 }

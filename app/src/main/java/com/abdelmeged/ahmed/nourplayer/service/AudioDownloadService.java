@@ -148,14 +148,12 @@ public class AudioDownloadService extends IntentService {
     }
 
     private void sendIntent(Download download) {
-
         Intent intent = new Intent(Constants.MESSAGE_PROGRESS);
         intent.putExtra("download", download);
         LocalBroadcastManager.getInstance(AudioDownloadService.this).sendBroadcast(intent);
     }
 
     private void onDownloadComplete() {
-
         Download download = new Download();
         download.setProgress(100);
         sendIntent(download);

@@ -7,6 +7,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.media.AudioManager;
+import android.support.design.widget.FloatingActionButton;
 import android.support.design.widget.Snackbar;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
@@ -19,7 +20,9 @@ import android.util.Log;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
+import android.view.View;
 import android.widget.Button;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -35,19 +38,45 @@ import com.abdelmeged.ahmed.nourplayer.utils.Constants;
 import com.abdelmeged.ahmed.nourplayer.utils.DownloadUtils;
 import com.abdelmeged.ahmed.nourplayer.utils.QuranIndex;
 import com.abdelmeged.ahmed.nourplayer.utils.StreamingUtils;
+import com.abdelmeged.ahmed.nourplayer.utils.Utilities;
+
+import net.gotev.speech.GoogleVoiceTypingDisabledException;
+import net.gotev.speech.Speech;
+import net.gotev.speech.SpeechDelegate;
+import net.gotev.speech.SpeechRecognitionNotAvailable;
+import net.gotev.speech.ui.SpeechProgressView;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+
+import butterknife.BindView;
+import butterknife.ButterKnife;
+import butterknife.OnClick;
 
 import static com.abdelmeged.ahmed.nourplayer.utils.Constants.MESSAGE_PROGRESS;
 
-public class MainActivity extends AppCompatActivity implements SuraClickCallbacks, SuraDownloadClickCallbacks {
+public class MainActivity extends AppCompatActivity implements SuraClickCallbacks, SuraDownloadClickCallbacks,
+        SpeechDelegate {
 
     /**
      * UI Element
      */
     private RecyclerView suraRecycler;
     private SuraRecyclerAdapter suraRecyclerAdapter;
+
+    @BindView(R.id.voice_recognition_fab)
+    FloatingActionButton voiceFab;
+
+    @BindView(R.id.speech_progress_view)
+    SpeechProgressView speechProgressView;
+
+    @BindView(R.id.speech_progress_container)
+    LinearLayout speechProgressContainer;
+
+
     private Toast toast;
 
     /**
@@ -56,6 +85,9 @@ public class MainActivity extends AppCompatActivity implements SuraClickCallback
     private static final String LOG_TAG = MainActivity.class.getSimpleName();
 
     private static final int PERMISSION_REQUEST_CODE = 1;
+    private static final int REQUEST_MICROPHONE = 2;
+
+    ArrayList<Sura> suras = new ArrayList<Sura>();
 
 
     @Override
@@ -71,7 +103,6 @@ public class MainActivity extends AppCompatActivity implements SuraClickCallback
         suraRecyclerAdapter = new SuraRecyclerAdapter(this, this, this);
         suraRecycler.setAdapter(suraRecyclerAdapter);
 
-        ArrayList<Sura> suras = new ArrayList<Sura>();
         suras.add(new Sura("Al-Baqara", "0Bz9EiHndgROYLUU5anNWWGJsX1k", QuranIndex.BQR));
         suras.add(new Sura("Al-Kawthar", "0Bz9EiHndgROYeHlFLTdiekFKREE", QuranIndex.KWA));
         suras.add(new Sura("Ar-Room", "0Bz9EiHndgROYTndObTRsWlBZMTg", QuranIndex.ROM));
@@ -79,7 +110,36 @@ public class MainActivity extends AppCompatActivity implements SuraClickCallback
 
         suraRecyclerAdapter.setSuras(suras);
 
+        ButterKnife.bind(this);
+
+        //Set the speech progress color
+        int[] colors = {
+                ContextCompat.getColor(this, android.R.color.black),
+                ContextCompat.getColor(this, android.R.color.darker_gray),
+                ContextCompat.getColor(this, android.R.color.black),
+                ContextCompat.getColor(this, android.R.color.holo_orange_dark),
+                ContextCompat.getColor(this, android.R.color.holo_red_dark)
+        };
+        speechProgressView.setColors(colors);
+
+
         registerReceiver();
+    }
+
+    @OnClick(R.id.voice_recognition_fab)
+    public void onVoiceButtonClicked() {
+        if (Speech.getInstance().isListening()) {
+            Speech.getInstance().stopListening();
+        } else {
+            if (ContextCompat.checkSelfPermission(this,
+                    Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this,
+                        new String[]{Manifest.permission.RECORD_AUDIO},
+                        REQUEST_MICROPHONE);
+            } else {
+                onRecordAudioPermissionGranted();
+            }
+        }
     }
 
     @Override
@@ -96,7 +156,6 @@ public class MainActivity extends AppCompatActivity implements SuraClickCallback
 
     @Override
     public void onSuraDownloadClick(Sura sura) {
-        showToast("sura download clicked");
         if (checkPermission()) {
             startDownload(sura);
         } else {
@@ -120,18 +179,12 @@ public class MainActivity extends AppCompatActivity implements SuraClickCallback
     private BroadcastReceiver broadcastReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-
             if (intent.getAction().equals(MESSAGE_PROGRESS)) {
 
                 Download download = intent.getParcelableExtra("download");
-                // mProgressBar.setProgress(download.getProgress());
                 if (download.getProgress() == 100) {
-
-                    //mProgressText.setText("File Download Complete");
                     suraRecyclerAdapter.notifyDataSetChanged();
-
                 } else {
-                    //mProgressText.setText(String.format("Downloaded (%d/%d) MB",download.getCurrentFileSize(),download.getTotalFileSize()));
                 }
             }
         }
@@ -141,20 +194,15 @@ public class MainActivity extends AppCompatActivity implements SuraClickCallback
         int result = ContextCompat.checkSelfPermission(this,
                 Manifest.permission.WRITE_EXTERNAL_STORAGE);
         if (result == PackageManager.PERMISSION_GRANTED) {
-
             return true;
-
         } else {
-
             return false;
         }
     }
 
 
     private void requestPermission() {
-
         ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, PERMISSION_REQUEST_CODE);
-
     }
 
     @Override
@@ -162,12 +210,13 @@ public class MainActivity extends AppCompatActivity implements SuraClickCallback
         switch (requestCode) {
             case PERMISSION_REQUEST_CODE:
                 if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-
-                    //  startDownload();
                 } else {
-
-                    //Snackbar.make(findViewById(R.id.coordinatorLayout),"Permission Denied, Please allow to proceed !", Snackbar.LENGTH_LONG).show();
-
+                }
+                break;
+            case REQUEST_MICROPHONE:
+                if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                } else {
+                    showToast(getString(R.string.permission_required));
                 }
                 break;
         }
@@ -215,8 +264,158 @@ public class MainActivity extends AppCompatActivity implements SuraClickCallback
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        Speech.getInstance().shutdown();
         if (toast != null) {
             toast.cancel();
         }
     }
+
+    private void onRecordAudioPermissionGranted() {
+        voiceFab.setVisibility(View.GONE);
+        speechProgressContainer.setVisibility(View.VISIBLE);
+
+        try {
+            Speech.getInstance().stopTextToSpeech();
+            Speech.getInstance().startListening(speechProgressView, MainActivity.this);
+
+        } catch (SpeechRecognitionNotAvailable exc) {
+            Utilities.showSpeechNotSupportedDialog(this);
+
+        } catch (GoogleVoiceTypingDisabledException exc) {
+            Utilities.showEnableGoogleVoiceTyping(this);
+        }
+    }
+
+    @Override
+    public void onStartOfSpeech() {
+        //Log.e(LOG_TAG, "speech recognition is now active");
+    }
+
+    @Override
+    public void onSpeechRmsChanged(float value) {
+        //Log.e(LOG_TAG, "Speech recognition rms is now " + value + "dB");
+    }
+
+    @Override
+    public void onSpeechPartialResults(List<String> results) {
+        for (String partial : results) {
+            //Log.e(LOG_TAG,partial);
+        }
+    }
+
+    @Override
+    public void onSpeechResult(String result) {
+        voiceFab.setVisibility(View.VISIBLE);
+        speechProgressContainer.setVisibility(View.GONE);
+
+        if (result.isEmpty()) {
+            Speech.getInstance().say(getString(R.string.repeat));
+        } else {
+            // Speech.getInstance().say(result);
+        }
+        QuranIndex currentSura = getCurrentQuery(result);
+
+        if (currentSura != null) {
+            //TODO a query should happen that just a test
+            Sura sura;
+            switch (currentSura) {
+                case BQR:
+                    sura = suras.get(0);
+                    break;
+                case KWA:
+                    sura = suras.get(1);
+                    break;
+                case ROM:
+                    sura = suras.get(2);
+                    break;
+                case MLK:
+                    sura = suras.get(3);
+                    break;
+                default:
+                    sura = null;
+            }
+            Log.e(LOG_TAG, getCurrentQuery(result).toString());
+            if (sura != null) {
+                Intent playSuraIntent = new Intent(MainActivity.this, SuraPlayerActivity.class);
+                if (DownloadUtils.isSuraDownloaded(sura.getQuranIndex(), this)) {
+                    sura.setDownloadUrl(DownloadUtils.getSuraUri(sura.getQuranIndex(), this));
+                    playSuraIntent.putExtra(Constants.EXTRA_SURA, sura);
+                } else {
+                    playSuraIntent.putExtra(Constants.EXTRA_SURA, sura);
+                }
+                startActivity(playSuraIntent);
+            } else {
+                showToast("This sura not found in the database");
+            }
+        } else {
+            showToast("No sura found");
+        }
+    }
+
+    private QuranIndex getCurrentQuery(String result) {
+        List<String> p = Arrays.asList(result.split(" "));
+        QuranIndex suarh = null;
+        String part = "";
+        String aya = "";
+        String hzeb = "";
+        String page = "";
+        String quarter = "";
+
+        //find if is a part
+        for (int i = 0; i < p.size(); i++) {
+            if (Constants.PART.contains(p.get(i))) {
+                try {
+                    part = p.get(i + 1);
+                } catch (IndexOutOfBoundsException e) {
+                    Log.e(LOG_TAG, "index out of range");
+                }
+            }
+
+            if (Constants.AYA.contains(p.get(i))) {
+                try {
+                    aya = p.get(i + 1);
+                } catch (IndexOutOfBoundsException e) {
+                    Log.e(LOG_TAG, "index out of range");
+                }
+            }
+
+            if (Constants.PAGE.contains(p.get(i))) {
+                try {
+                    page = p.get(i + 1);
+                } catch (IndexOutOfBoundsException e) {
+                    Log.e(LOG_TAG, "index out of range");
+                }
+            }
+
+            if (Constants.QUARTER.contains(p.get(i))) {
+                try {
+                    quarter = p.get(i + 1);
+                } catch (IndexOutOfBoundsException e) {
+                    Log.e(LOG_TAG, "index out of range");
+                }
+            }
+
+            if (Constants.HZEB.contains(p.get(i))) {
+                try {
+                    hzeb = p.get(i + 1);
+                } catch (IndexOutOfBoundsException e) {
+                    Log.e(LOG_TAG, "index out of range");
+                }
+            }
+        }
+        //find thw surah form text
+        surahLoop:
+        for (Map.Entry<QuranIndex, List<String>> entry : Constants.Surahs.entrySet()) {
+            List<String> s = entry.getValue();
+            for (int i = 0; i < p.size(); i++) {
+                if (s.contains(p.get(i))) {
+                    suarh = entry.getKey();
+                    break surahLoop;
+                }
+            }
+        }
+        return suarh;
+    }
+
+
 }
